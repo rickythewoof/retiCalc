@@ -37,9 +37,7 @@ int main(int argc, const char **argv)
     brdc_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     brdc_addr.sin_port = htons(PORT);
 
-    int is_leader = (strcmp(argv[2], "leader") == 0);
-
-    if (is_leader)
+    if (argc == 3 && (strcmp(argv[2], "leader") == 0))
     {
         fprintf(stdout, "LEADER\n");
         fflush(stdout);
