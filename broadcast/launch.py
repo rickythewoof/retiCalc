@@ -2,6 +2,9 @@ import random
 import subprocess
 
 num_nodes = 10
+project_directory = "./src"
+all_connected = True
+image = None
 
 # Return a random connected graph n nodes and n-1 edges 
 def get_random_edges(num_nodes):
@@ -34,16 +37,35 @@ def get_yaml(num_nodes, edges):
     buffer = "services:\n"
     for node in range(num_nodes):
         buffer += f"\tnode{node}:\n"
-        buffer += "\t\tbuild:\n"
-        buffer += "\t\t\tcontext: ../udp/client\n"
-        buffer += "\t\t\tdockerfile: Dockerfile\n"
-        buffer += "\t\tnetworks:\n"
+
+        if image:
+            buffer += f"\t\timage: {image}\n"
+        else:
+            buffer += "\t\tbuild:\n"
+            buffer += f"\t\t\tcontext: {project_directory}\n"
+            buffer += "\t\t\tdockerfile: Dockerfile\n"
+
+        params = [f"'{node}'"]
+        if all_connected:
+            for edge in edges:
+                if edge[0] == node:
+                    params.append(f"'{edge[1]}'")
+                if edge[1] == node:
+                    params.append(f"'{edge[0]}'")
+
+        params = ", ".join(params)
+
+        buffer += f"\t\tcommand: [{params}]\n"
+
+        if not all_connected:
+            buffer += "\t\tnetworks:\n"
+            for edge in edges:
+                if node in edge:
+                    buffer += f"\t\t- edge_{edge[0]}_{edge[1]}\n"
+    if not all_connected:
+        buffer += "networks:\n"
         for edge in edges:
-            if node in edge:
-                buffer += f"\t\t- edge-{edge[0]}-{edge[1]}\n"
-    buffer += "networks:\n"
-    for edge in edges:
-        buffer += f"\tedge-{edge[0]}-{edge[1]}:\n"
+            buffer += f"\tedge_{edge[0]}_{edge[1]}:\n"
 
     buffer = buffer.replace("\t", "  ")
     return buffer
