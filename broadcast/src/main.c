@@ -14,16 +14,19 @@
 
 typedef struct
 {
-    int src;
-    int seq_num;
-    int data;
+    __u_short src;
+    __u_short seq_num;
+    __u_short data;
 } Packet;
 
 int main(int argc, const char **argv)
 {
+
+    setvbuf(stdout, NULL, _IONBF, 0);
+    
     if (argc != 2)
     {
-        printf("USAGE: ./node.o <num>\n\nFor leader set num to 0\n");
+        printf("USAGE: ./node.o <num>\nGot %d args, for leader set num to 0\n", argc);
         exit(1);
     }
 
