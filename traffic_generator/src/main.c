@@ -91,9 +91,8 @@ void process_broadcaster(Broadcaster *broadcaster)
 
 typedef struct TrafficAnalyzer
 {
-    int source;
+    int node_id;
     time_t datetime;
-    struct TrafficAnalyzer* prev;
     struct TrafficAnalyzer* next;
 
 } TrafficAnalyzer;
@@ -162,6 +161,10 @@ int msleep(long msec)
 
 int main()
 {
+    //Broadcaster on main!
+    //TODO open pipe brdc->trfc
+    //               gnrt->brdc
+
 
     // Autoflush stdout for docker
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -175,20 +178,6 @@ int main()
         case(0):
             //TODO: 
             //  - Enable traffic generator
-            break;
-        default:
-            break;
-    }
-    // Broadcaster
-    pid_t broadcaster_pid = fork();
-    switch(broadcaster_pid){
-        case(-1):
-            perror("Fork() failed");
-            return -1;
-        case(0):
-            //TODO: 
-            //  - Enable broadcaster
-            //  - Create comunication pipe from traffic generator to broadcaster
             break;
         default:
             break;
