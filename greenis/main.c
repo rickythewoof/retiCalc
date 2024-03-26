@@ -39,33 +39,45 @@ typedef struct Request{
 
 typedef struct Dictionary{
     slot* first;
-    int size;
+
 } Dictionary;
 
 int client_socket;
 
 Request* parse(char* buf);                              
-void set(Dictionary* dict, char* key, char* value, time_t expiry);      //Function to add key/value to dictionary
-slot* get(Dictionary* dict, const char* key);                           //Function to get slot* from key. Returns NULL if not found
-slot* del(Dictionary* dict, slot* slot);                                //Function to remove slot* from dict
+void set(Dictionary* dict, Request* req);           //Function to add key/value to dictionary
+slot* get(Dictionary* dict, Request* req);          //Function to get slot* from key. Returns NULL if not found
+slot* del(Dictionary* dict, slot* slot);            //Function to remove slot* from dict
 void send_tcp(int socket, int default_ok, slot* slot);
 void handle_connection(int fd, int id);
 void handle_request(Dictionary* dict, Request* req);
 
 
-void set(Dictionary* dict, char* key, char* value, time_t expiry){
-    slot* add = calloc(1, sizeof(slot*));
-    add->expiry = expiry;
-    add->key = malloc(sizeof(char)*(strlen(key)+1));
-    add->value = malloc(sizeof(char)*(strlen(value)+1));
+void set(Dictionary* dict, Request* req){
+    slot* get_req = get(dict, req);
+    if(get_req == NULL){
+        printf("Not found, adding to head\n");
+        slot* new = malloc(sizeof(slot));
+        new->key = req->key;
+        new->value = req->value;
+        new->expiry = req->time_to_live;
+        new->next = dict->first;
+        dict->first = new;
+        return;
+    }
+    printf("found it, changing\n");
+    get_req->value = req->value;
 }
-slot* get(Dictionary* dict, const char* key){
-    slot* start = dict->first;
-    while(start->next){
-        if(strcmp(start->key, key) == 0){
-            return start;
+slot* get(Dictionary* dict, Request* req){
+    slot* current = dict->first;
+    
+    while(current != NULL){
+        fflush(stdout);
+        if(strcmp(current->key, req->key) == 0 && (current->expiry == -1 || time(NULL) < current->expiry)){
+            return current;
         }
-        start = start->next;
+
+        current = current->next;
     }
     return NULL;
 }
@@ -90,7 +102,6 @@ void handle_connection(int fd, int id){
             ret = recv(fd, &buf, MAX_BUF, 0);
             if(ret == -1) exit_with_error("Error receiving");
             else if(ret == 0) exit_with_error("pipe closed");
-            printf("String received = %s ", buf);
             Request *req = parse(buf);
             handle_request(&dict, req);
             free(req);
@@ -99,7 +110,6 @@ void handle_connection(int fd, int id){
     _exit(0);
 }
 
-//TODO: Finish parser
 void removeChars(char *str) {
     char *src, *dst;
     for (src = dst = str; *src != '\0'; src++) {
@@ -130,7 +140,6 @@ Request* parse(char* buf){
                 if(index == 2){
                     if(memcmp(token, "CLIENT", size_of_next_elem) != 0){
                         ret->request_type = (memcmp(token, "GET", size_of_next_elem) == 0) ? GET : SET;
-                        printf("This packet is a %d\n", ret->request_type);
                     }
                 } else if(index == 4 ){
                     ret->key = malloc(sizeof(char)* size_of_next_elem+1);
@@ -138,6 +147,8 @@ Request* parse(char* buf){
                 } else if(index == 6){
                     ret->value = malloc(sizeof(char)* size_of_next_elem+1);
                     memcpy(ret->value, token, size_of_next_elem+1);
+                } else if(index == 10){
+                    ret->time_to_live = time(NULL) + atoi(token);
                 }
             }
         }
@@ -149,13 +160,15 @@ Request* parse(char* buf){
 }
 
 void handle_request(Dictionary* dict, Request* req){
+    printf("Handling request ... \n");
     switch(req->request_type){
         case(INFO):
             printf("DETECTED useless garbaj\n");
             send_tcp(client_socket, OK, NULL);
             break;
         case(GET):
-            slot* ret = get(dict, req->key);
+            printf("DETECTED GET\n");
+            slot* ret = get(dict, req);
             if(ret == NULL){
                 send_tcp(client_socket, NOT_FOUND, NULL);
             }else{
@@ -164,9 +177,11 @@ void handle_request(Dictionary* dict, Request* req){
             break;
         case(SET):
             printf("DETECTED SET\n");
-            set(dict, req->key, req->value, req->time_to_live);
+            set(dict, req);
             send_tcp(client_socket, OK, NULL);
             break;
+        default:
+            printf("Sum Tin Wong\n");
     }
  }
 
@@ -174,7 +189,8 @@ void handle_request(Dictionary* dict, Request* req){
 void send_tcp(int socket, int request, slot* slot){
     char buf[MAX_BUF];
     if(request == GET_SUCCEEDED){
-        snprintf(buf, 10, "$%ld %s\r\n", strlen(slot->value), slot->value);
+        snprintf(buf, 10, "$%ld\r\n%s\r\n", strlen(slot->value), slot->value);
+        printf("Sending GET response! %s\n", buf);
         int ret = send(socket, buf, strlen(buf), 0);
         if(ret == -1) exit_with_error("error sending GET response");
     } if(request == OK){
@@ -182,7 +198,7 @@ void send_tcp(int socket, int request, slot* slot){
         snprintf(buf, MAX_BUF, "+0K\r\n");
         int ret = send(socket, buf, strlen(buf), 0);
         if (ret == -1) exit_with_error("Error sending OK");
-    } if(NOT_FOUND){
+    } if(request == NOT_FOUND){
         printf("Sending NOT FOUND!\n");
         snprintf(buf, 6, "$-1\r\n");
         int ret = send(socket, buf, strlen(buf), 0);
@@ -190,10 +206,6 @@ void send_tcp(int socket, int request, slot* slot){
     } 
 
 }
-
-
-
-// https://redis.io/docs/reference/protocol-spec/
 
 int main(int argc, const char * argv[]) {
 

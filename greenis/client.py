@@ -7,10 +7,12 @@ print(r.get("forever"))
 
 print(r.set("forever", "value"))
 
-print(r.set("key", "value", ex=10))
+print(r.get("forever"))
+
+""" print(r.set("key", "value", ex=10))
 
 for i in range(12):
     print(r.get("key"))
     time.sleep(1)
 
-print(r.get("non-existing-key"))
+print(r.get("non-existing-key")) """
