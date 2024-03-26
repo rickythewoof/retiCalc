@@ -4,10 +4,19 @@
 #include <time.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
+#define GENERATOR_FIFO_NAME "generator"
+#define ANALYZER_FIFO_NAME "analyzer"
 int src_num, seq_num;
+
+
+
+int generator_pipe;
+int analyzer_pipe;
 
 typedef struct Payload
 {
@@ -29,6 +38,10 @@ Message *prepare_message(Payload *payload);
 //---------------
 
 // Some sistem that triggers handler callback every x milliseconds
+
+void generator_function(){
+    
+}
 
 
 //---------------
@@ -89,6 +102,11 @@ void process_broadcaster(Broadcaster *broadcaster)
 // Traffic Analyzer
 //---------------
 
+typedef struct TrafficHead{
+    TrafficAnalyzer* first;
+    TrafficAnalyzer* last;
+} TrafficHead;
+
 typedef struct TrafficAnalyzer
 {
     int node_id;
@@ -97,13 +115,58 @@ typedef struct TrafficAnalyzer
 
 } TrafficAnalyzer;
 
-void received_pkt(TrafficAnalyzer *analyzer, int source)
-{
-    
+void analyzer_function(){
+    analyzer_pipe = open(ANALYZER_FIFO_NAME, O_RDONLY);
+    if(analyzer_pipe < 0){
+        perror("Error opening analyzer pipe");
+        exit(1); 
+    }
+    TrafficHead head = {.first = NULL, .last = NULL};
 
 }
 
-void dump(TrafficAnalyzer *analyzer)
+TrafficAnalyzer* push_to_queue(TrafficHead* head, TrafficAnalyzer* analyzer){
+    assert(head != NULL && analyzer != NULL);
+
+    if(head->first == NULL){
+        head->first = analyzer;
+        analyzer->next = NULL;
+        head->last = analyzer;
+    } else {
+        TrafficAnalyzer* last = head->last;
+        last->next = analyzer;
+        head->last = analyzer;
+    }
+
+    return analyzer;
+}
+
+TrafficAnalyzer* pop_from_queue(TrafficHead* head){
+    assert(head!=NULL);
+    if(head->first == NULL){
+        return NULL;
+    }
+    TrafficAnalyzer* popped = head->first;
+    head->first = popped->next;
+
+    return popped;
+}
+
+int peek_time_from_first(TrafficHead* head){
+    assert(head!=NULL && head->first != NULL);
+    return head->first->datetime;
+}
+
+void received_pkt(TrafficHead *head, int source)
+{
+    TrafficAnalyzer* analyzer = calloc(1,sizeof(TrafficAnalyzer));
+    analyzer->node_id = source;
+    analyzer->datetime = time(NULL);
+    push_to_queue(head, analyzer);
+
+}
+
+void dump(TrafficHead *head);
 {
     // Dump information about the thoughput of all packets received
 }
@@ -162,15 +225,18 @@ int msleep(long msec)
 int main()
 {
     //Broadcaster on main!
-    //TODO open pipe brdc->trfc
+    //TODO open pipe brdc->nlyz
     //               gnrt->brdc
 
 
     // Autoflush stdout for docker
     setvbuf(stdout, NULL, _IONBF, 0);
 
+
     // Traffic generator
+    
     pid_t generator_pid = fork();
+    
     switch(generator_pid){
         case(-1):
             perror("Fork() failed");
@@ -178,20 +244,26 @@ int main()
         case(0):
             //TODO: 
             //  - Enable traffic generator
+            generator_function();
             break;
         default:
+            generator_pipe = open(GENERATOR_FIFO_NAME, O_WRONLY);
+            if(generator_pipe < 0){
+                perror("Error opening pipe");
+                exit(1);
+            }
             break;
     }
     // Traffic analyzer
-    pid_t traffic_pid = fork();
-    switch(traffic_pid){
+    pid_t analyzer_pid = fork();
+    switch(analyzer_pid){
         case(-1):
             perror("Fork() failed");
             return -1;
         case(0):
             //TODO: 
             //  - Enable traffic analyzer
-            //  - Create comm-pipe from broadcaster to traffica analyzer
+            analyzer_function();
             break;
         default:
             break;
