@@ -12,7 +12,7 @@
 
 #define PORT 7379
 #define MAX_PROCS 3
-#define MAX_BUF 256
+#define MAX_BUF 2048
 
 #define NOT_FOUND 0
 #define GET_SUCCEEDED 1
@@ -128,9 +128,7 @@ Request* parse(char* buf){
     int size_of_next_elem = 0;
     removeChars(buf);
     char* token = strtok(buf, "\r");
-    printf("Parsing ... \n");
     while(token){
-        printf("\tindex = %d\tstring = %s\n", index, token);
         if(index == 0){
             number_of_elems = atoi(token+1);
         } else{
@@ -155,7 +153,6 @@ Request* parse(char* buf){
         index++;
         token = strtok(NULL, "\r");
     }
-    printf("\n");
     return ret;
 }
 
@@ -189,7 +186,7 @@ void handle_request(Dictionary* dict, Request* req){
 void send_tcp(int socket, int request, slot* slot){
     char buf[MAX_BUF];
     if(request == GET_SUCCEEDED){
-        snprintf(buf, 10, "$%ld\r\n%s\r\n", strlen(slot->value), slot->value);
+        snprintf(buf, MAX_BUF, "$%ld\r\n%s\r\n", strlen(slot->value), slot->value);
         printf("Sending GET response! %s\n", buf);
         int ret = send(socket, buf, strlen(buf), 0);
         if(ret == -1) exit_with_error("error sending GET response");
@@ -200,7 +197,7 @@ void send_tcp(int socket, int request, slot* slot){
         if (ret == -1) exit_with_error("Error sending OK");
     } if(request == NOT_FOUND){
         printf("Sending NOT FOUND!\n");
-        snprintf(buf, 6, "$-1\r\n");
+        snprintf(buf, MAX_BUF, "$-1\r\n");
         int ret = send(socket, buf, strlen(buf), 0);
         if(ret == -1) exit_with_error("error sending NOT FOUND response");
     } 
