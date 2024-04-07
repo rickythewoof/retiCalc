@@ -37,6 +37,7 @@ Hint
 */
 
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <fcntl.h>
@@ -46,10 +47,15 @@ Hint
 #include <sys/sem.h>
 #include <errno.h>
 
-#define NUM_RAILS 4
+#define NUM_RAILS 10
 #define TMin 10
 #define TMax 20
-#define T 50
+#define T 100
+
+struct train_packet{
+    int sem_id;
+    int counter;
+};
 
 
 static int passed = 0;
@@ -61,28 +67,21 @@ static pthread_mutex_t passing_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t waiting_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void dump();
-void queue_train(int train_id);
-void train_thread(void* arg);
-void pass_on_rail();
-void initialize_everything();
+void queue_train(int sem_rail, int train_id);
+void* train_thread(void* arg);
 
 
 void dump(){
     printf("Passed: %3d\tPassing: %3d\tWaiting: %3d\n", passed, passing, waiting);
 }
 
-void queue_train(int train_id){
+void queue_train(int sem_rail, int train_id){
 
     pthread_mutex_lock(&waiting_mutex);
     waiting++;
     pthread_mutex_unlock(&waiting_mutex);
     dump();
-    struct sembuf sem_op = {0, -1, 0};
-    int ret = semop(sem_rail, &sem_op, 1);
-    if(ret == -1){
-        perror("Error waiting on semaphore!");
-        exit(-1);
-    }
+    
     pthread_mutex_lock(&waiting_mutex);
     waiting--;
     pthread_mutex_unlock(&waiting_mutex);
@@ -91,8 +90,20 @@ void queue_train(int train_id){
     passing++;
     pthread_mutex_unlock(&passing_mutex);
     // Critical section
+    struct sembuf sem_op = {0, -1, 0};
+    int ret = semop(sem_rail, &sem_op, 1);
+    if(ret == -1){
+        perror("Error waiting on semaphore!");
+        exit(-1);
+    }
     dump();
     usleep(1000*T);
+    sem_op.sem_op = 1;
+    ret = semop(sem_rail, &sem_op, 1);
+    if(ret == -1){
+        perror("Error freeing semaphore!");
+        exit(-1);
+    }
 
     pthread_mutex_lock(&passing_mutex);
     passing--;
@@ -100,42 +111,57 @@ void queue_train(int train_id){
     
     dump();
 
-    sem_op.sem_op = 1;
-    ret = semop(sem_rail, &sem_op, 1);
-    if(ret == -1){
-        perror("Error freeing semaphore!");
-        exit(-1);
-    }
     pthread_mutex_lock(&passed_mutex);
-    passed--;
+    passed++;
     pthread_mutex_unlock(&passed_mutex);
 }
 
-void train_thread(void* arg){
-    int train_id = *(int*) arg;
+void* train_thread(void* arg){
+    struct train_packet packet = *(struct train_packet*) arg;
 
-    queue_train(train_id);
-    return;
+
+    queue_train(packet.sem_id, packet.counter);
+    return NULL;
 }
 
 
 int main(int argc, char* argv[]){
     // TODO: Initialize sempahores
     srand(time(NULL));
-    semget(sem_id, 1, IPC_PRIVATE);
+    int sem_id = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
+    if(sem_id == -1){
+        perror("Error creating semaphore!");
+        exit(1);
+    }
+    union semun {
+        int val;
+        struct semid_ds *buf;
+        unsigned short *array;
+        struct seminfo *__buf;
+    };
+    
+    union semun sem_val = {.val = NUM_RAILS};
+    int ret = semctl(sem_id, 0, SETVAL, sem_val);
+
+    if(ret ==-1){
+        perror("Error setting semaphore!");
+        exit(1);
+    }
+
     int counter = 0;
+    struct train_packet packet = {.sem_id = sem_id, .counter = counter};
     pthread_t thread[1000];
     for(int i = 0; i < 1000; i++){
         int next_train_time = rand() % (TMax-TMin+1) + TMin;
         usleep(next_train_time*1000);
-        int ret = pthread_create(thread[i], NULL, train_thread, &counter);
+        int ret = pthread_create(&thread[i], NULL, train_thread, &packet);
         if(ret == -1){
             perror("Error creating thread!");
         }
     }
 
     for(int i = 0; i < 1000; i++){
-        int ret = pthread_join(thread[i]);
+        int ret = pthread_join(thread[i], NULL);
         if(ret == -1){
             perror("Error jopining thread!");
         }
