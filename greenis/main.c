@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ipc.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/select.h>
+#include <sys/sem.h>
 #include <unistd.h>
 #include <time.h>
 #include <arpa/inet.h>
@@ -42,7 +44,7 @@ typedef struct Dictionary{
 
 } Dictionary;
 
-int client_socket;
+int client_socket, sem_id;
 
 Request* parse(char* buf);                              
 void set(Dictionary* dict, Request* req);           //Function to add key/value to dictionary
@@ -158,6 +160,12 @@ Request* parse(char* buf){
 
 void handle_request(Dictionary* dict, Request* req){
     printf("Handling request ... \n");
+    struct sembuf sem_op = {0, -1, 0};
+    int ret = semop(sem_id, &sem_op, 1);
+    if(ret == -1){
+        perror("Error waiting on semaphore!");
+        exit(-1);
+    }
     switch(req->request_type){
         case(INFO):
             printf("DETECTED useless garbaj\n");
@@ -179,6 +187,12 @@ void handle_request(Dictionary* dict, Request* req){
             break;
         default:
             printf("Sum Tin Wong\n");
+    }
+    sem_op.sem_op = 1;
+    ret = semop(sem_id, &sem_op, 1);
+    if(ret == -1){
+        perror("Error freeing semaphore!");
+        exit(-1);
     }
  }
 
@@ -207,6 +221,21 @@ void send_tcp(int socket, int request, slot* slot){
 int main(int argc, const char * argv[]) {
 
     int ret, pid, child_id = 0, opt = 1;
+    sem_id = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
+    union semun {
+        int val;
+        struct semid_ds *buf;
+        unsigned short *array;
+        struct seminfo *__buf;
+    };
+    
+    union semun sem_val = {.val = 1};
+    ret = semctl(sem_id, 0, SETVAL, sem_val);
+
+    if(ret ==-1){
+        perror("Error creating semaphore!");
+        exit(1);
+    }
 
     // Open Socket and receive connections
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
