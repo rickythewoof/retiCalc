@@ -47,10 +47,10 @@ Hint
 #include <sys/sem.h>
 #include <errno.h>
 
-#define NUM_RAILS 10
-#define TMin 10
-#define TMax 20
-#define T 100
+int NUM_RAILS;
+int TMin;
+int TMax;
+int T;
 
 struct train_packet{
     int sem_id;
@@ -79,16 +79,9 @@ void queue_train(int sem_rail, int train_id){
 
     pthread_mutex_lock(&waiting_mutex);
     waiting++;
-    pthread_mutex_unlock(&waiting_mutex);
     dump();
-    
-    pthread_mutex_lock(&waiting_mutex);
-    waiting--;
     pthread_mutex_unlock(&waiting_mutex);
 
-    pthread_mutex_lock(&passing_mutex);
-    passing++;
-    pthread_mutex_unlock(&passing_mutex);
     // Critical section
     struct sembuf sem_op = {0, -1, 0};
     int ret = semop(sem_rail, &sem_op, 1);
@@ -96,8 +89,18 @@ void queue_train(int sem_rail, int train_id){
         perror("Error waiting on semaphore!");
         exit(-1);
     }
+    
+    pthread_mutex_lock(&waiting_mutex);
+    waiting--;
+    pthread_mutex_unlock(&waiting_mutex);
+    pthread_mutex_lock(&passing_mutex);
+    passing++;
+    pthread_mutex_unlock(&passing_mutex);
     dump();
     usleep(1000*T);
+    pthread_mutex_lock(&passing_mutex);
+    passing--;
+    pthread_mutex_unlock(&passing_mutex);
     sem_op.sem_op = 1;
     ret = semop(sem_rail, &sem_op, 1);
     if(ret == -1){
@@ -105,14 +108,9 @@ void queue_train(int sem_rail, int train_id){
         exit(-1);
     }
 
-    pthread_mutex_lock(&passing_mutex);
-    passing--;
-    pthread_mutex_unlock(&passing_mutex);
-    
-    dump();
-
     pthread_mutex_lock(&passed_mutex);
     passed++;
+    dump();
     pthread_mutex_unlock(&passed_mutex);
 }
 
@@ -126,6 +124,16 @@ void* train_thread(void* arg){
 
 
 int main(int argc, char* argv[]){
+    
+    if(argc != 5){
+        printf("usage: ./main.o <num_rails> <TMin> <TMax> <T>\n");
+        return 0;
+
+    }
+    NUM_RAILS = atoi(argv[1]);
+    TMin = atoi(argv[2]);
+    TMax = atoi(argv[3]);
+    T = atoi(argv[4]);
     // TODO: Initialize sempahores
     srand(time(NULL));
     int sem_id = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
@@ -155,6 +163,7 @@ int main(int argc, char* argv[]){
         int next_train_time = rand() % (TMax-TMin+1) + TMin;
         usleep(next_train_time*1000);
         int ret = pthread_create(&thread[i], NULL, train_thread, &packet);
+        packet.counter++;
         if(ret == -1){
             perror("Error creating thread!");
         }
